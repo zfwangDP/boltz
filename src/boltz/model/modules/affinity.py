@@ -36,8 +36,8 @@ class AffinityModule(nn.Module):
 
     def __init__(
         self,
-        token_s,
-        token_z,
+        token_s: int,
+        token_z: int,
         pairformer_args: dict,
         transformer_args: dict,
         num_dist_bins=64,
@@ -49,7 +49,7 @@ class AffinityModule(nn.Module):
         boundaries = torch.linspace(2, max_dist, num_dist_bins - 1)
         self.register_buffer("boundaries", boundaries)
         self.dist_bin_pairwise_embed = nn.Embedding(num_dist_bins, token_z)
-        init.gating_init_(self.dist_bin_pairwise_embed.weight)
+        init.gating_init_(self.dist_bin_pairwise_embed.weight)  # gating init means all zeros (why not just zeros?)
 
         self.s_to_z_prod_in1 = LinearNoBias(token_s, token_z)
         self.s_to_z_prod_in2 = LinearNoBias(token_s, token_z)
@@ -203,11 +203,11 @@ class AffinityHeadsTransformer(nn.Module):
 
         g = torch.sum(z * cross_pair_mask, dim=(1, 2)) / (
             torch.sum(cross_pair_mask, dim=(1, 2)) + 1e-7
-        )
+        )   # seems averaged embedding, 0-dim batch, -1-dim features.
 
-        g = self.affinity_out_mlp(g)
+        g = self.affinity_out_mlp(g)    # pretransform of embeddings
 
-        affinity_pred_value = self.to_affinity_pred_value(g).reshape(-1, 1)
+        affinity_pred_value = self.to_affinity_pred_value(g).reshape(-1, 1) # bsz x 1
         affinity_pred_score = self.to_affinity_pred_score(g).reshape(-1, 1)
         affinity_logits_binary = self.to_affinity_logits_binary(
             affinity_pred_score

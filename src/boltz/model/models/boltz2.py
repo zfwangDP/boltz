@@ -414,13 +414,13 @@ class Boltz2(LightningModule):
             z_init = (
                 self.z_init_1(s_inputs)[:, :, None]
                 + self.z_init_2(s_inputs)[:, None, :]
-            )
+            )   # bsz x feat_dim x feat_dim
             relative_position_encoding = self.rel_pos(feats)
-            z_init = z_init + relative_position_encoding
-            z_init = z_init + self.token_bonds(feats["token_bonds"].float())
+            z_init = z_init + relative_position_encoding    # classical sequence embeddings..
+            z_init = z_init + self.token_bonds(feats["token_bonds"].float())    # add bond embedding
             if self.bond_type_feature:
-                z_init = z_init + self.token_bonds_type(feats["type_bonds"].long())
-            z_init = z_init + self.contact_conditioning(feats)
+                z_init = z_init + self.token_bonds_type(feats["type_bonds"].long()) # add bond type embedding
+            z_init = z_init + self.contact_conditioning(feats)  # contact-condition
 
             # Perform rounds of the pairwise stack
             s = torch.zeros_like(s_init)

@@ -167,3 +167,4 @@ cython_debug/
 # Boltz prediction outputs
 #   All result files generated from a boltz prediction call
 boltz_results_*/
+fep_bench_test/
