@@ -330,14 +330,14 @@ class BoltzAffinityWriter(BasePredictionWriter):
         if self.write_pre_affi_embeddings:
             if "pre_affi_embeddings" in prediction:
                 pre_affi_embeddings = prediction["pre_affi_embeddings"]
-                save_path = self.output_dir / f"pre_affi_embeddings_{batch['record'][0].id}.npz"
+                save_path = self.output_dir / batch["record"][0].id / f"pre_affi_embeddings_{batch['record'][0].id}.npz"
                 np.savez_compressed(save_path, pre_affi_embeddings=pre_affi_embeddings)
             elif "pre_affi_embeddings_1" in prediction:
                 pre_affi_embeddings_1 = prediction["pre_affi_embeddings_1"]
                 pre_affi_embeddings_2 = prediction["pre_affi_embeddings_2"]
-                save_path_1 = self.output_dir / f"pre_affi_embeddings_1_{batch['record'][0].id}.npz"
+                save_path_1 = self.output_dir / batch["record"][0].id / f"pre_affi_embeddings_1_{batch['record'][0].id}.npz"
                 np.savez_compressed(save_path_1, pre_affi_embeddings = pre_affi_embeddings_1)
-                save_path_2 = self.output_dir / f"pre_affi_embeddings_2_{batch['record'][0].id}.npz"
+                save_path_2 = self.output_dir / batch["record"][0].id / f"pre_affi_embeddings_2_{batch['record'][0].id}.npz"
                 np.savez_compressed(save_path_2, pre_affi_embeddings = pre_affi_embeddings_2)
             else:
                 raise KeyError(f"Pre-Affi embedding missing in predictions")
