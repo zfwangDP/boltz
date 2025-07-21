@@ -1038,6 +1038,11 @@ def cli() -> None:
     is_flag=True,
     help=" to dump the s and z embeddings into a npz file. Default is False.",
 )
+@click.option(
+    "--write_pre_affi_embeddings",
+    is_flag=True,
+    help=" to dump z, feats and multiplicity(inputs to affinity head) into a npz file. Default is False"
+)
 def predict(  # noqa: C901, PLR0915, PLR0912
     data: str,
     out_dir: str,
@@ -1076,6 +1081,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
     num_subsampled_msa: int = 1024,
     no_kernels: bool = False,
     write_embeddings: bool = False,
+    write_pre_affi_embeddings: bool = False,
 ) -> None:
     """Run predictions with Boltz."""
     # If cpu, write a friendly warning
@@ -1353,6 +1359,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
         pred_writer = BoltzAffinityWriter(
             data_dir=processed.targets_dir,
             output_dir=out_dir / "predictions",
+            write_pre_affi_embeddings=write_pre_affi_embeddings,
         )
 
         data_module = Boltz2InferenceDataModule(

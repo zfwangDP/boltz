@@ -627,7 +627,7 @@ class Boltz2(LightningModule):
 
             with torch.autocast("cuda", enabled=False):
                 if self.affinity_ensemble:
-                    dict_out_affinity1 = self.affinity_module1(
+                    dict_out_affinity1, pre_affi_embeddings1 = self.affinity_module1(
                         s_inputs=s_inputs.detach(),
                         z=z_affinity.detach(),
                         x_pred=coords_affinity,
@@ -641,7 +641,7 @@ class Boltz2(LightningModule):
                             dict_out_affinity1["affinity_logits_binary"]
                         )
                     )
-                    dict_out_affinity2 = self.affinity_module2(
+                    dict_out_affinity2, pre_affi_embeddings2 = self.affinity_module2(
                         s_inputs=s_inputs.detach(),
                         z=z_affinity.detach(),
                         x_pred=coords_affinity,
@@ -699,8 +699,10 @@ class Boltz2(LightningModule):
                     dict_out.update(dict_out_affinity_ensemble)
                     dict_out.update(dict_out_affinity1)
                     dict_out.update(dict_out_affinity2)
+                    dict_out["pre_affi_embeddings_1"] = pre_affi_embeddings1
+                    dict_out["pre_affi_embeddings_2"] = pre_affi_embeddings2
                 else:
-                    dict_out_affinity = self.affinity_module(
+                    dict_out_affinity, pre_affi_embeddings = self.affinity_module(
                         s_inputs=s_inputs.detach(),
                         z=z_affinity.detach(),
                         x_pred=coords_affinity,
@@ -718,6 +720,7 @@ class Boltz2(LightningModule):
                             ),
                         }
                     )
+                    dict_out["pre_affi_embeddings"] = pre_affi_embeddings
 
         return dict_out
 
@@ -1118,6 +1121,10 @@ class Boltz2(LightningModule):
                     pred_dict["affinity_probability_binary2"] = out[
                         "affinity_probability_binary2"
                     ]
+                    pred_dict["pre_affi_embeddings_1"] = out["pre_affi_embeddings_1"]
+                    pred_dict["pre_affi_embeddings_2"] = out["pre_affi_embeddings_2"]
+                else:
+                    pred_dict["pre_affi_embeddings"] = out["pre_affi_embeddings"]
             return pred_dict
 
         except RuntimeError as e:  # catch out of memory exceptions

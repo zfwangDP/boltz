@@ -274,6 +274,7 @@ class BoltzAffinityWriter(BasePredictionWriter):
         self,
         data_dir: str,
         output_dir: str,
+        write_pre_affi_embeddings: bool = False,
     ) -> None:
         """Initialize the writer.
 
@@ -288,6 +289,7 @@ class BoltzAffinityWriter(BasePredictionWriter):
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.write_pre_affi_embeddings = write_pre_affi_embeddings
 
     def write_on_batch_end(
         self,
@@ -324,6 +326,21 @@ class BoltzAffinityWriter(BasePredictionWriter):
             affinity_summary["affinity_probability_binary2"] = (
                 pred_affinity_probability2.item()
             )
+
+        if self.write_pre_affi_embeddings:
+            if "pre_affi_embeddings" in prediction:
+                pre_affi_embeddings = prediction["pre_affi_embeddings"]
+                save_path = self.output_dir / f"pre_affi_embeddings_{batch['record'][0].id}.npz"
+                np.savez_compressed(save_path, pre_affi_embeddings=pre_affi_embeddings)
+            elif "pre_affi_embeddings_1" in prediction:
+                pre_affi_embeddings_1 = prediction["pre_affi_embeddings_1"]
+                pre_affi_embeddings_2 = prediction["pre_affi_embeddings_2"]
+                save_path_1 = self.output_dir / f"pre_affi_embeddings_1_{batch['record'][0].id}.npz"
+                np.savez_compressed(save_path_1, pre_affi_embeddings = pre_affi_embeddings_1)
+                save_path_2 = self.output_dir / f"pre_affi_embeddings_2_{batch['record'][0].id}.npz"
+                np.savez_compressed(save_path_2, pre_affi_embeddings = pre_affi_embeddings_2)
+            else:
+                raise KeyError(f"Pre-Affi embedding missing in predictions")
 
         # Save the affinity summary
         struct_dir = self.output_dir / batch["record"][0].id

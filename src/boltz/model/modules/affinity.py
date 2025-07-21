@@ -136,7 +136,9 @@ class AffinityModule(nn.Module):
             self.affinity_heads(z=z, feats=feats, multiplicity=multiplicity)
         )
 
-        return out_dict
+        return out_dict, {"z":z.cpu().numpy(), 
+            "feats":{k:(v.cpu().numpy() if isinstance(v, torch.Tensor) else v) for k,v in feats.items()}, 
+            "multiplicity":multiplicity}
 
 
 class AffinityHeadsTransformer(nn.Module):
