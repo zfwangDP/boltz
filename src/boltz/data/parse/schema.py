@@ -47,6 +47,10 @@ from boltz.data.types import (
     Target,
     TemplateInfo,
 )
+import msys
+import os
+import subprocess
+import pdb
 
 ####################################################################################################
 # DATACLASSES
@@ -793,6 +797,103 @@ def parse_ccd_residue(
     )
 
 
+def parse_polymer_direct(
+    chain: msys.Chain,
+    sequence: list[str],
+    raw_sequence: str,
+    entity: str,
+    chain_type: str,
+    components: dict[str, Mol],
+    cyclic: bool,
+    mol_dir: Path,
+) -> Optional[ParsedChain]:
+    # Map MSE to MET, HIE to HIS
+    chain_seq = [res.name if res.name != "MSE" else "MET" for res in chain.residues]
+    chain_seq = [name if name != "HIE" else "HIS"  for name in chain_seq]
+    assert chain_seq == sequence
+    ref_res = set(const.tokens)
+    unk_chirality = const.chirality_type_ids[const.unk_chirality_type]
+    if not set(chain_seq) < ref_res:
+        raise NotImplementedError(f"only support standard residue, got unrecognized residues {list(set(chain_seq) - ref_res)}")
+
+    # Get coordinates and masks
+    parsed = []
+    for res_idx, res in enumerate(chain.residues):
+        res_name = res.name
+        res_corrected = res_name if res_name != "MSE" else "MET"
+        res_corrected = res_corrected if res_corrected != "HIE" else "HIS"
+
+        # Only use reference atoms set in constants
+        ref_name_to_atom = {a.name: a for a in res.atoms}
+        ref_atoms = [ref_name_to_atom[name] for name in const.ref_atoms[res_corrected]]
+
+        # Load ref residue
+        ref_ccd_mol = get_mol(res_corrected, components, mol_dir)
+        ref_ccd_mol = AllChem.RemoveHs(ref_ccd_mol, sanitize=False)
+        ref_ccd_name_to_atom = {a.GetProp("name"): a for a in ref_ccd_mol.GetAtoms()}
+        ref_ccd_atoms = [ref_ccd_name_to_atom[name] for name in const.ref_atoms[res_corrected]]
+
+        # Iterate, always in the same order
+        atoms: list[ParsedAtom] = []    
+        for ref_atom,ref_ccd_atom in zip(ref_atoms, ref_ccd_atoms):
+            # Get atom name
+            atom_name = ref_atom.name
+            assert atom_name == ref_ccd_atom.GetProp("name"), f"inconsistent ref atom {atom_name} and ref ccd atom {ref_ccd_atom.GetProp('name')}"
+
+            # Get conformer coordinates
+            ref_coords = ref_atom.pos
+            ref_coords = (ref_coords[0], ref_coords[1], ref_coords[2])
+
+            # Set 0 coordinate
+            atom_is_present = True
+            coords = ref_coords
+
+            # Add atom to list
+            atoms.append(
+                ParsedAtom(
+                    name=atom_name,
+                    element=ref_atom.atomic_number,
+                    charge=ref_atom.formal_charge,
+                    coords=coords,
+                    conformer=ref_coords,
+                    is_present=atom_is_present,
+                    chirality=const.chirality_type_ids.get(
+                        str(ref_ccd_atom.GetChiralTag()), unk_chirality     # can not get by msys, load a ref rdkit mol
+                    ),
+                )
+            )
+        atom_center = const.res_to_center_atom_id[res_corrected]
+        atom_disto = const.res_to_disto_atom_id[res_corrected]
+        parsed.append(
+            ParsedResidue(
+                name=res_corrected,
+                type=const.token_ids[res_corrected],
+                atoms=atoms,
+                bonds=[],
+                idx=res_idx,
+                atom_center=atom_center,
+                atom_disto=atom_disto,
+                is_standard=True,
+                is_present=True,
+                orig_idx=None,
+            )
+        )
+
+    if cyclic:
+        cyclic_period = len(sequence)
+    else:
+        cyclic_period = 0
+
+    # Return polymer object
+    return ParsedChain(
+        entity=entity,
+        residues=parsed,
+        type=chain_type,
+        cyclic_period=cyclic_period,
+        sequence=raw_sequence,
+    )
+
+
 def parse_polymer(
     sequence: list[str],
     raw_sequence: str,
@@ -1013,6 +1114,41 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
     items_to_group = {}
     chain_name_to_entity_type = {}
 
+    # pre-parse templates
+    template_schema = schema.get("templates", [])
+
+    # map between the template chain and the predicting chain
+    template_chain_map = {}
+    strict_template_info = {}
+    cif_paths = []
+    pdb_paths = []
+    template_systems = []
+    template_systems_chain_map = {}
+    # add strict template parsing
+    for template_index, template in enumerate(template_schema):
+        assert len(template.get('chain_id', [])) == len(template.get('template_id', [])), f"inconsistent template template specification"
+        #template_chain_map.setdefault(template_index, {}).update({k:v for k,v in zip(template.get('chain_id', []), template.get('template_id', []))})
+        template_chain_map.update({k:(template_index, v) for k,v in zip(template.get('chain_id', []), template.get('template_id', []))})
+        strict_template = template.get("strict_template", False)
+        strict_template_info.update({k:(strict_template or strict_template_info.get(k)) for k in template.get('chain_id', [])})
+        cif_path = template.get("cif")
+        cif_paths.append(cif_path)
+        cif_dir = os.path.dirname(cif_path)
+        cif_base_name = os.path.basename(cif_path)
+        cif_prefix = os.path.splitext(cif_base_name)[0]
+        pdb_path = os.path.join(cif_dir, f"{cif_prefix}.pdb")
+        pdb_paths.append(pdb_path)
+        if strict_template:
+            if not os.path.exists(pdb_path):
+                subprocess.run(["obabel","-icif",cif_path,"-opdb","-O",pdb_path])
+            template_prot_system = msys.LoadPDB(pdb_path)
+            template_systems.append(template_prot_system)
+            template_systems_chain_map.setdefault(template_index, {}).update({chain.name:chain for chain in template_prot_system.chains})
+        else:
+            template_systems.append(None)
+            template_systems_chain_map[template_index] = {}
+    pdb.set_trace()
+
     for item in schema["sequences"]:
         # Get entity type
         entity_type = next(iter(item.keys())).lower()
@@ -1082,7 +1218,7 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
     is_msa_custom = False
     is_msa_auto = False
     ligand_id = 1
-    for entity_id, items in enumerate(items_to_group.values()):
+    for entity_id, items in enumerate(items_to_group.values()): # grouped by entity id(type + sequence, as key), protein/rna/ligand, etc.
         # Get entity type and sequence
         entity_type = next(iter(items[0].keys())).lower()
 
@@ -1155,6 +1291,9 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
 
             # Extract sequence
             raw_seq = items[0][entity_type]["sequence"]
+            item_chain_id = items[0][entity_type]["id"]
+            template_chain_id = template_chain_map.get(item_chain_id)
+            pdb.set_trace()
             entity_to_seq[entity_id] = raw_seq
 
             # Convert sequence to tokens
@@ -1169,15 +1308,29 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
             cyclic = items[0][entity_type].get("cyclic", False)
 
             # Parse a polymer
-            parsed_chain = parse_polymer(
-                sequence=seq,
-                raw_sequence=raw_seq,
-                entity=entity_id,
-                chain_type=chain_type,
-                components=ccd,
-                cyclic=cyclic,
-                mol_dir=mol_dir,
-            )
+            pdb.set_trace()
+            if strict_template_info.get(item_chain_id):
+                strict_template_chain = template_systems_chain_map[template_chain_id[0]][template_chain_id[1]]
+                parsed_chain = parse_polymer_direct(
+                    chain = strict_template_chain,
+                    sequence=seq,
+                    raw_sequence=raw_seq,
+                    entity=entity_id,
+                    chain_type=chain_type,
+                    components=ccd,
+                    cyclic=cyclic,
+                    mol_dir=mol_dir,
+                )
+            else:
+                parsed_chain = parse_polymer(
+                    sequence=seq,
+                    raw_sequence=raw_seq,
+                    entity=entity_id,
+                    chain_type=chain_type,
+                    components=ccd,
+                    cyclic=cyclic,
+                    mol_dir=mol_dir,
+                )
 
         # Parse a non-polymer
         elif (entity_type == "ligand") and "ccd" in (items[0][entity_type]):
@@ -1577,8 +1730,6 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
     # Get protein sequences in this YAML
     protein_seqs = {name: chains[name].sequence for name in protein_chains}
 
-    # Parse templates
-    template_schema = schema.get("templates", [])
     if template_schema and not boltz_2:
         msg = "Templates are not supported in Boltz 1.0!"
         raise ValueError(msg)
@@ -1788,6 +1939,8 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
         planar_ring_5_constraints=planar_ring_5_constraints,
         planar_ring_6_constraints=planar_ring_6_constraints,
     )
+
+    pdb.set_trace()
     return Target(
         record=record,
         structure=data,
