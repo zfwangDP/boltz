@@ -50,7 +50,7 @@ from boltz.data.types import (
 import msys
 import os
 import subprocess
-import pdb
+
 
 ####################################################################################################
 # DATACLASSES
@@ -1147,7 +1147,6 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
         else:
             template_systems.append(None)
             template_systems_chain_map[template_index] = {}
-    pdb.set_trace()
 
     for item in schema["sequences"]:
         # Get entity type
@@ -1293,7 +1292,6 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
             raw_seq = items[0][entity_type]["sequence"]
             item_chain_id = items[0][entity_type]["id"]
             template_chain_id = template_chain_map.get(item_chain_id)
-            pdb.set_trace()
             entity_to_seq[entity_id] = raw_seq
 
             # Convert sequence to tokens
@@ -1308,7 +1306,6 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
             cyclic = items[0][entity_type].get("cyclic", False)
 
             # Parse a polymer
-            pdb.set_trace()
             if strict_template_info.get(item_chain_id):
                 strict_template_chain = template_systems_chain_map[template_chain_id[0]][template_chain_id[1]]
                 parsed_chain = parse_polymer_direct(
@@ -1940,7 +1937,6 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
         planar_ring_6_constraints=planar_ring_6_constraints,
     )
 
-    pdb.set_trace()
     return Target(
         record=record,
         structure=data,
