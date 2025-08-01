@@ -1256,6 +1256,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
         output_format=output_format,
         boltz2=model == "boltz2",
         write_embeddings=write_embeddings,
+        retain_original_coords=True,
     )
 
     # Set up trainer
@@ -1406,6 +1407,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
             msa_args=asdict(msa_args),
             steering_args=asdict(steering_args),
             affinity_mw_correction=affinity_mw_correction,
+            skip_run_structure=True,
         )
         model_module.eval()
 

@@ -24,6 +24,7 @@ class BoltzWriter(BasePredictionWriter):
         output_format: Literal["pdb", "mmcif"] = "mmcif",
         boltz2: bool = False,
         write_embeddings: bool = False,
+        retain_original_coords: bool = False,
     ) -> None:
         """Initialize the writer.
 
@@ -45,6 +46,7 @@ class BoltzWriter(BasePredictionWriter):
         self.boltz2 = boltz2
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.write_embeddings = write_embeddings
+        self.retain_original_coords = retain_original_coords
 
     def write_on_batch_end(
         self,
@@ -65,7 +67,11 @@ class BoltzWriter(BasePredictionWriter):
         records: list[Record] = batch["record"]
 
         # Get the predictions
-        coords = prediction["coords"]
+        if self.retain_original_coords:
+            assert "input_coords" in prediction, f"try to get input coords but missing in prediction"
+            coords = prediction["input_coords"]
+        else:
+            coords = prediction["coords"]
         coords = coords.unsqueeze(0)
 
         pad_masks = prediction["masks"]

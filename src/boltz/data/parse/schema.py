@@ -50,7 +50,7 @@ from boltz.data.types import (
 import msys
 import os
 import subprocess
-
+from mlff.tools import read_lig_from_pred_pdb
 
 ####################################################################################################
 # DATACLASSES
@@ -674,7 +674,7 @@ def parse_ccd_residue(
         # Remove hydrogens
         ref_mol = AllChem.RemoveHs(ref_mol, sanitize=False)
 
-        pos = (0, 0, 0)
+        pos = tuple(ref_mol.GetConformer().GetPositions()[0])
         ref_atom = ref_mol.GetAtoms()[0]
         chirality_type = const.chirality_type_ids.get(
             str(ref_atom.GetChiralTag()), unk_chirality
@@ -684,7 +684,7 @@ def parse_ccd_residue(
             element=ref_atom.GetAtomicNum(),
             charge=ref_atom.GetFormalCharge(),
             coords=pos,
-            conformer=(0, 0, 0),
+            conformer=tuple(ref_mol.GetConformer().GetPositions()[0]),
             is_present=True,
             chirality=chirality_type,
         )
@@ -732,7 +732,7 @@ def parse_ccd_residue(
         )
 
         # Get PDB coordinates, if any
-        coords = (0, 0, 0)
+        coords = tuple(ref_mol.GetConformer().GetPositions()[i])
         atom_is_present = True
 
         # Add atom to list
@@ -1119,11 +1119,13 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
 
     # map between the template chain and the predicting chain
     template_chain_map = {}
-    strict_template_info = {}
+    strict_template_info = {"ligand":set()}
     cif_paths = []
     pdb_paths = []
     template_systems = []
     template_systems_chain_map = {}
+    ligand_template_mols = []
+    ligand_target_chains = []
     # add strict template parsing
     for template_index, template in enumerate(template_schema):
         assert len(template.get('chain_id', [])) == len(template.get('template_id', [])), f"inconsistent template template specification"
@@ -1144,9 +1146,22 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
             template_prot_system = msys.LoadPDB(pdb_path)
             template_systems.append(template_prot_system)
             template_systems_chain_map.setdefault(template_index, {}).update({chain.name:chain for chain in template_prot_system.chains})
+            if template.get("ligand_template"):
+                ligand_template_path = template.get("ligand_sdf")
+                ligand_residue = template.get("ligand_residue")
+                target_ligand_chain = template.get("ligand_id")
+                if ligand_template_path is not None:
+                    template_mol = Chem.MolFromMolFile(ligand_template_path)
+                elif ligand_residue is not None:
+                    template_mol = read_lig_from_pred_pdb(pdb_path, ligand_residue)
+                else:
+                    raise ValueError(f"must specify either ligand sdf or ligand residue if use ligand_template is set to True")
+                ligand_template_mols.append(template_mol)
+                ligand_target_chains.append(target_ligand_chain)
         else:
             template_systems.append(None)
             template_systems_chain_map[template_index] = {}
+    ligand_template_map = {chain_name:mol for chain_name,mol in zip(ligand_target_chains, ligand_template_mols)}
 
     for item in schema["sequences"]:
         # Get entity type
@@ -1380,9 +1395,26 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
 
             mol = AllChem.MolFromSmiles(seq)
             mol = AllChem.AddHs(mol)
+            can_smiles = Chem.MolToSmiles(mol)
+
+            mol_id = items[0][entity_type]["id"]
+            mol_strict_template = mol_id in ligand_template_map
 
             # Set atom names
             canonical_order = AllChem.CanonicalRankAtoms(mol)
+            argsort_canonical_order = np.argsort(canonical_order)
+            
+            if mol_strict_template:
+                ref_mol = ligand_template_map[mol_id]
+                ref_mol = standardize_3D_mol(ref_mol)
+                ref_mol = AllChem.AddHs(ref_mol)
+                ref_smiles = Chem.MolToSmiles(ref_mol)
+                canonical_ref_order = AllChem.CanonicalRankAtoms(ref_mol)
+                argsort_canonical_ref_order = np.argsort(canonical_ref_order)
+            
+                assert can_smiles == ref_smiles, f"template molecule has different smiles to target molecule, check your inputs"
+                #ref_atom_mapping = {ori_order:ref_order for ori_order, ref_order in zip(argsort_canonical_order, argsort_canonical_ref_order)}
+
             for atom, can_idx in zip(mol.GetAtoms(), canonical_order):
                 atom_name = atom.GetSymbol().upper() + str(can_idx + 1)
                 if len(atom_name) > 4:
@@ -1397,6 +1429,14 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
             if not success:
                 msg = f"Failed to compute 3D conformer for {seq}"
                 raise ValueError(msg)
+            if mol_strict_template:
+                ref_conformer = ref_mol.GetConformer()
+                ref_positions = ref_conformer.GetPositions()
+                canonical_ref_positions = ref_positions[argsort_canonical_ref_order]
+                new_positions = canonical_ref_positions[canonical_order]
+                generated_conformer = mol.GetConformer()
+                for atom_idx,atom in enumerate(mol.GetAtoms()):
+                    generated_conformer.SetAtomPosition(atom_idx, new_positions[atom_idx])
 
             mol_no_h = AllChem.RemoveHs(mol, sanitize=False)
             affinity_mw = AllChem.Descriptors.MolWt(mol_no_h) if affinity else None
@@ -1865,7 +1905,7 @@ def parse_boltz_schema(  # noqa: C901, PLR0915, PLR0912
     )
 
     if boltz_2:
-        atom_data = [(a[0], a[3], a[5], 0.0, 1.0) for a in atom_data]
+        atom_data = [(a[0], a[3], a[5], 0.0, 1.0) for a in atom_data]   # element/charge/conformer/chiralty are dropped
         connections = [(*c, const.bond_type_ids["COVALENT"]) for c in connections]
         bond_data = bond_data + connections
         atoms = np.array(atom_data, dtype=AtomV2)
@@ -1966,6 +2006,7 @@ def standardize(smiles: str) -> Optional[str]:
     mol = LARGEST_FRAGMENT_CHOOSER.choose(mol)
     # Standardize with ChEMBL data curation pipeline. During standardization, the molecule may be broken
     mol = standardize_mol(mol)
+    Chem.SetAromaticity(mol)
     smiles = Chem.MolToSmiles(mol)
 
     # Check if molecule can be parsed by RDKit (in rare cases, the molecule may be broken during standardization)
@@ -1973,3 +2014,34 @@ def standardize(smiles: str) -> Optional[str]:
         raise ValueError("Molecule is broken")
 
     return smiles
+
+from chembl_structure_pipeline.standardizer import (
+    update_mol_valences, 
+    remove_sgroups_from_mol, 
+    kekulize_mol, 
+    remove_hs_from_mol, 
+    normalize_mol, 
+    uncharge_mol, 
+    flatten_tartrate_mol, 
+    )
+
+def standardize_3D_mol(mol: Chem.rdchem.Mol) -> Chem.rdchem.Mol:
+    """
+    TODO: write an explaination
+    """
+    LARGEST_FRAGMENT_CHOOSER = rdMolStandardize.LargestFragmentChooser()
+    exclude = exclude_flag(mol, includeRDKitSanitization=False)
+    if exclude:
+        raise ValueError("Molecule is excluded")
+    mol = LARGEST_FRAGMENT_CHOOSER.choose(mol)
+    mol = update_mol_valences(mol)
+    mol = remove_sgroups_from_mol(mol)
+    mol = kekulize_mol(mol)
+    mol = remove_hs_from_mol(mol)
+    mol = normalize_mol(mol)
+    mol = uncharge_mol(mol)
+    mol = flatten_tartrate_mol(mol)
+    Chem.SanitizeMol(mol)
+    Chem.SetAromaticity(mol)
+
+    return mol

@@ -622,7 +622,7 @@ class Boltz2(LightningModule):
             best_idx = argsort[0].item()
             coords_affinity = dict_out["sample_atom_coords"].detach()[best_idx][
                 None, None
-            ]
+            ] if not self.skip_run_structure else feats['coords']
             s_inputs = self.input_embedder(feats, affinity=True)
 
             with torch.autocast("cuda", enabled=False):
@@ -721,6 +721,9 @@ class Boltz2(LightningModule):
                         }
                     )
                     dict_out["pre_affi_embeddings"] = pre_affi_embeddings
+        dict_out['input_coords'] = feats['coords'].squeeze(1) if feats['coords'].size(1)==1 else feats['coords']
+        if self.skip_run_structure:
+            dict_out["sample_atom_coords"] = feats['coords'].squeeze(1) if feats['coords'].size(1)==1 else feats['coords']
 
         return dict_out
 
@@ -1081,6 +1084,7 @@ class Boltz2(LightningModule):
                 for key in self.predict_args["keys_dict_out"]:
                     pred_dict[key] = out[key]
             pred_dict["coords"] = out["sample_atom_coords"]
+            pred_dict["input_coords"] = out["input_coords"]
             if self.confidence_prediction:
                 # pred_dict["confidence"] = out.get("ablation_confidence", None)
                 pred_dict["pde"] = out["pde"]
