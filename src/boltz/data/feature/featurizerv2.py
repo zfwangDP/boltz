@@ -1714,8 +1714,10 @@ def compute_template_features(
     # Now create features per token
     asym_id_to_pdb_id = {}
 
+    query_token_idx_map = {t[0]:i for i,t in enumerate(query_tokens.tokens)}
     for token_dict in tmpl_tokens:
         idx = token_dict["q_idx"]
+        idx = query_token_idx_map[idx]
         pdb_id = token_dict["pdb_id"]
         token = token_dict["token"]
         query_token = query_tokens.tokens[idx]
