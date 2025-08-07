@@ -1044,6 +1044,11 @@ def cli() -> None:
     is_flag=True,
     help=" to dump z, feats and multiplicity(inputs to affinity head) into a npz file. Default is False"
 )
+@click.option(
+    "--retain_original_coords",
+    is_flag=True,
+    help ="retain protein and ligand coords in template files(if given). Default is False"
+)
 def predict(  # noqa: C901, PLR0915, PLR0912
     data: str,
     out_dir: str,
@@ -1083,6 +1088,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
     no_kernels: bool = False,
     write_embeddings: bool = False,
     write_pre_affi_embeddings: bool = False,
+    retain_original_coords: bool = False,
 ) -> None:
     """Run predictions with Boltz."""
     # If cpu, write a friendly warning
@@ -1256,7 +1262,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
         output_format=output_format,
         boltz2=model == "boltz2",
         write_embeddings=write_embeddings,
-        retain_original_coords=True,
+        retain_original_coords=retain_original_coords,
     )
 
     # Set up trainer
@@ -1407,7 +1413,7 @@ def predict(  # noqa: C901, PLR0915, PLR0912
             msa_args=asdict(msa_args),
             steering_args=asdict(steering_args),
             affinity_mw_correction=affinity_mw_correction,
-            skip_run_structure=True,
+            skip_run_structure=(not retain_original_coords),
         )
         model_module.eval()
 
